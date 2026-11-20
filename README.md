@@ -1,48 +1,38 @@
 # NeloveLabs
 
-NeloveLabs is a neural human-voice platform foundation. Text-to-speech, genuine provider previews and voice cloning call the configured provider from server routes. If credentials are missing or a provider call fails, the product surfaces an error instead of returning placeholder speech or claiming an untested quality level.
+NeloveLabs is a neural voice studio with a **browser-local synthesis path that does not call a voice-generation API**. It uses open ONNX model weights through Kokoro.js / Transformers.js and WebAssembly in the browser. On first use, the browser downloads model files from Hugging Face and caches them; after that, inference runs on the user's device. Text and generated audio are not sent to our server by the local studio.
+
+## Local synthesis models
+
+- **English (US/UK):** Kokoro-82M ONNX, quantized Q8, WASM. Eight curated presets are exposed.
+- **Português brasileiro:** Kokoro-82M Portuguese voice embeddings (`pf_dora`, `pm_alex`, `pm_santa`) run locally. A small grapheme-to-phoneme adapter maps common PT-BR spelling patterns to IPA. Validate regional pronunciation with native listeners; this adapter isn't a substitute for a thoroughly tested, dedicated Brazilian phonemizer.
+- The browser downloads model weights on first use (internet required). Audio is generated in-browser and can be exported as WAV or MP3. Generation history for this path is kept in browser localStorage.
+- Model capability is presented honestly: open neural models run without provider credentials, but are not claimed to match the proprietary naturalness, accent fidelity, voice cloning, or emotional controls of ElevenLabs. Emotion isn't presented as a control if the selected model doesn't support it.
+- Local generation currently accepts up to 1,500 characters at a time. An 82M quantized model can use substantial browser memory; devices without WebAssembly support are rejected with an explicit error.
 
 ## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local
+cp .env.example .env.local # optional, only for account/cloud/clone features
 npm run dev
 ```
 
-Configure the server-side variables in `.env.local` (or your deployment environment):
+The studio does not require `ELEVENLABS_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, or any API credentials for local speech generation. Supabase and the optional provider routes remain for cloud login, clone workflows, provider voice catalogue and server-side history. Never expose server-side keys with `NEXT_PUBLIC_`.
 
-```dotenv
-ELEVENLABS_API_KEY=...                 # server only; never use NEXT_PUBLIC_
-ELEVENLABS_MODEL_ID=eleven_multilingual_v2
-NEXT_PUBLIC_SUPABASE_URL=https://....supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...          # server only
-```
+## Dependencies and Vercel
 
-`ELEVENLABS_MODEL_ID=eleven_v3` enables provider emotion tags. With other models, the API rejects non-neutral emotion selections rather than pretending the model interpreted them. Provider model and voice capabilities vary; use a licensed voice from your account, and validate pronunciation and performance on real samples before production. The language selector passes the corresponding ISO language code; Portuguese accent quality still depends on the voice supplied by the provider. The seed catalogue is a short list of real provider voice IDs, not custom recordings. Previews are fetched from the provider on demand; no bundled sample audio is used.
+`kokoro-js` and Transformers.js are used only from a client component. `onnxruntime-node` is a transitive package; browser inference uses WASM. `.npmrc` sets `ignore-scripts=true` so npm does not run the native/GPU ONNX Runtime downloader during installation. No inference server is deployed.
 
-## Supabase
+## Cloud/Supabase (optional)
 
-Create a Supabase project and apply `supabase/migrations/202611200001_initial.sql` (Supabase CLI: `supabase db push`). Enable email/password authentication. The migration creates profiles, personal voices, generation history and an atomic credit balance with row-level security. Server-side credit reservations require the service-role key and are refunded on failed provider requests. Never put the service-role key in a browser environment. Production billing / checkout is intentionally disabled until a real billing integration is added; no paid plan is represented as purchasable.
+For optional login, cloud history and clone management, configure `.env.example` values and apply `supabase/migrations/202611200001_initial.sql`. Voice cloning remains a provider-dependent feature because the local browser model does not implement safe voice-clone training. Billing is disabled until a real checkout service exists.
 
-## Smoke test
-
-`npm run typecheck` and `npm run build` validate the application without making a provider request. A real network synthesis test is opt-in and requires a provider key and voice ID:
+## Checks
 
 ```bash
-ELEVENLABS_API_KEY=... ELEVENLABS_TEST_VOICE_ID=... npm run test:provider
+npm run typecheck
+npm run build
 ```
 
-It synthesizes a short Brazilian Portuguese phrase in memory, verifies that real audio bytes came back, then discards the audio. A pass does not replace human review of naturalness, accent, consent, accessibility, or latency. No live provider test is possible without configured credentials.
-
-## Routes
-
-- `/` landing and live provider-sample player
-- `/login`, `/signup` Supabase email authentication
-- `/studio` neural text-to-speech workspace, controls, actual generated playback, MP3 and browser-generated PCM WAV downloads
-- `/voices` connected voice library and actual provider previews
-- `/cloning`, `/my-voices` consent-gated provider cloning and owner-only deletion
-- `/history`, `/settings`, `/billing` account workspace
-
-Audio generation uses a provider adapter-style server endpoint (`/api/generate`), keeps provider keys on the server, reserves credits, records generation metadata, and streams actual provider audio to the signed-in user. Provider-specific behavior is isolated in `src/app/api` and can be replaced while retaining the studio UI and data model.
+Builds and typechecks do not download or run model weights. To validate perceived quality, open `/studio` on a device, choose the language model, wait for the first weight download and listen to generated text. Human naturalness is subjective, so no benchmark claim is made without evaluation against real listeners.
